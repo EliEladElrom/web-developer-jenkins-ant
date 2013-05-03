@@ -1,0 +1,261 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project name="QA build" default="build">
+	
+	<property file="project.properties" />
+	<property file="config/log.properties" />
+	
+	<target name="build" depends="create-tmp-folder-and-set-permission,delete-all-files-from-remote-host,transfer-all-files-to-remote-host,create-less-css-file,transfer-less-file,minify-js-files,transfer-js-files" 
+		description="Compile Less, minify and move files to server">
+	</target>
+	
+	<target name="build-local-less-minify-files" depends="LOCAL-create-minify-js-files-and-move-locally,LOCAL-create-less-css-file-and-move-locally,delete-temp-folder-content" 
+		description="Compile Less, minify and move files to local">
+	</target>
+	
+	<target name="build-delete-local-less-minify-files" depends="LOCAL-delete-less-css-file-locally,LOCAL-delete-minify-js-files-locally" 
+		description="Compile Less, minify and move files to local">
+	</target>
+	
+	<target name="build-prod" depends="delete-all-files-from-productions-prod,place-maintenance-page-as-prod-updating,transfer-prod-files,transfer-js-files-to-prod,transfer-css-min-files-to-prod,rename-maintenance-page-productions"
+		description="Build PROD">
+	</target>
+	
+	<target name="create-less-css-file" 
+		depends="delete-temp-folder-content"
+		description="Convert LESS to CSS then concatenate and Minify any stylesheets">
+		<echo message="${log.convertlessfile.message}"/>
+
+		<apply dir="${tmp.dir}" executable="java" parallel="false" failonerror="true">
+			<fileset dir="${projectBaseName}/${lessSrc.dir}">
+				<include name="*.less"/>
+			</fileset>
+			<arg value="-jar" />
+			<arg path="${tool.rhino}" />
+			<arg path="${tool.less}" />
+			<srcfile/>
+			<mapper type="glob" from="*.less" to="${tmp.dir}/*.css"/>
+			<targetfile/>
+		</apply>
+	</target>
+	
+	<target name="LOCAL-create-less-css-file-and-move-locally"
+		description="create and move less file locally"
+		depends="delete-temp-folder-content,create-less-css-file">
+		<echo message="${log.create-less-and-move-locally.message}"/>
+		<copy todir="${projectBaseName}/${lessSrc.dir}">
+		    <fileset dir="tmp">
+		      <exclude name="**/*.js"/>
+		    </fileset>
+		  </copy>	
+	</target>
+	<target name="LOCAL-delete-less-css-file-locally"
+		description="delete less file locally">
+		<echo message="${log.delete-less-files-locally.message}"/>	
+		<delete>
+		    <fileset dir="${projectBaseName}/${lessSrc.dir}" includes="**/*.css"/>
+		</delete>		
+	</target>
+	
+	<target name="delete-temp-folder-content" description="delete temp folder content">	
+		<echo message="${log.delete-temp-content.message}"/>
+		<delete includeemptydirs="false">
+			  <fileset dir="${tmp.dir}" includes="*" defaultexcludes="false"/>
+		</delete>
+		<delete includeemptydirs="false">
+			  <fileset dir="${tmp.dir}/independent" includes="*" defaultexcludes="false"/>
+		</delete>
+	</target>
+	
+    <target name="transfer-less-file" depends="jsch-include">
+		<echo message="${log.move-less-file.message}"/>
+	    <scp keyfile="${server.keyfile}"
+             passphrase="${passphrase}"
+	    	 trust="true"
+             todir="${userid}@${ec2.hostname}:/var/www/html/less">
+	            <fileset dir="${tmp.dir}"/>
+	    </scp>
+    </target>	
+		
+	<target name="minify-js-files"
+		depends="delete-temp-folder-content"
+		description="Minify concatenated files">
+		<echo message="${log.minify.message}"/>		
+		<apply executable="java" parallel="false" dest="${tmp.dir}" taskname="yui">
+			<fileset file="${projectBaseName}/js/pages/*.js"/>
+			<arg line="-jar"></arg>
+			<arg path="${tool.compressor}"></arg>
+			<arg line="--charset UTF-8"/>
+			<arg line="-v"></arg>
+			<srcfile/>
+			<arg line="-o"></arg>
+			<mapper type="glob" from="*.js" to="*.min.js"></mapper>
+			<targetfile/>
+	   </apply>
+		<apply executable="java" parallel="false" dest="${tmp.dir}/independent" taskname="yui">
+					<fileset file="${projectBaseName}/js/pages/independent/*.js"/>
+					<arg line="-jar"></arg>
+					<arg path="${tool.compressor}"></arg>
+					<arg line="--charset UTF-8"/>
+					<arg line="-v"></arg>
+					<srcfile/>
+					<arg line="-o"></arg>
+					<mapper type="glob" from="*.js" to="*.min.js"></mapper>
+					<targetfile/>
+			   </apply>
+	</target>
+	
+	<target name="LOCAL-create-minify-js-files-and-move-locally"
+		description="create and move minify js files locally"
+		depends="delete-temp-folder-content,minify-js-files">
+		<echo message="${log.create-minify-js-files-and-move-locally.message}"/>
+		<copy todir="${projectBaseName}/js/pages/">
+		    <fileset dir="tmp">
+		      <exclude name="**/*.css"/>
+		    </fileset>
+		  </copy>	
+	</target>
+	<target name="LOCAL-delete-minify-js-files-locally"
+		description="delete minify js files locally">
+		<echo message="${log.delete-minify-js-files-locally.message}"/>	
+		<delete>
+		    <fileset dir="${projectBaseName}/js/pages/" includes="**/*.min.js"/>
+		</delete>		
+	</target>	
+	
+    <target name="transfer-js-files" depends="jsch-include">
+		<echo message="${log.move-js-files.message}"/>
+	    <scp keyfile="${server.keyfile}"
+             passphrase="${passphrase}"
+	    	 trust="true"
+             todir="${userid}@${ec2.hostname}:/var/www/html/js/pages">
+	            <fileset dir="${tmp.dir}"/>
+	    </scp>
+    </target>	
+	
+	<target name="jsch-include">
+		<available property="ant-jsch.present" file="${ant.home}/lib/ant-jsch.jar"/>
+		<fail if="ant-jsch.present" message="${log.ant-jsch-error.message}"/>
+		<path id="jsch.path">
+		    <pathelement location="${tool.antjsch}" />
+		    <pathelement location="${tool.jsch}" />
+		</path>
+		<taskdef name="scp" classname="org.apache.tools.ant.taskdefs.optional.ssh.Scp" classpathref="jsch.path" />
+		<taskdef name="sshexec" classname="org.apache.tools.ant.taskdefs.optional.ssh.SSHExec" classpathref="jsch.path" />			
+	</target>
+	
+    <target name="delete-all-files-from-remote-host" depends="jsch-include">
+		<echo message="${log.deleting.message}"/>
+    	<sshexec host="${ec2.hostname}" 
+    		username="${userid}" 
+    		trust="true"
+    		verbose="true"
+    		passphrase="${passphrase}"
+    		keyfile="${server.keyfile}" command="rm -r -f /var/www/html/*"/>
+    </target>		
+	
+    <target name="transfer-all-files-to-remote-host" depends="jsch-include">
+		<echo message="${log.moving.message}"/>
+	    <scp keyfile="${server.keyfile}"
+             passphrase="${passphrase}"
+	    	 trust="true"
+             todir="${userid}@${ec2.hostname}:/var/www/html">
+	            <fileset dir="${projectBaseName}"/>
+	    </scp>
+    </target>
+	
+    <target name="create-tmp-folder-and-set-permission">
+		<echo message="${log.create-tmp-folder-and-set-permission.message}"/>
+    	<mkdir dir="tmp"/>
+    	<exec executable="chmod" dir="tmp" failonerror="true">
+    	    <arg line="-R 0755 ." />
+    	</exec>
+    	<mkdir dir="tmp/independent"/>
+    	<exec executable="chmod" dir="tmp/independent" failonerror="true">
+    	    <arg line="-R 0755 ." />
+    	</exec>
+    </target>
+	
+    <target name="delete-all-files-from-productions-prod" depends="jsch-include">
+		<echo message="${log.deleteprodfiles.message}"/>
+    	<sshexec host="${ec2.prodhostname}" 
+    		username="${userid}" 
+    		trust="true"
+    		verbose="true"
+    		passphrase="${passphrase}"
+    		keyfile="${server.keyfile}" command="rm -r -f /var/www/html/*"/>    	
+    </target>
+	
+    <target name="place-maintenance-page-as-prod-updating" depends="jsch-include">
+		<echo message="${log.place-maintenance-page-as-prod-updating.message}"/>
+        <sshexec host="${ec2.prodhostname}"
+                 username="${userid}"
+                 trust="true"
+                 verbose="true"
+                 passphrase="${passphrase}"
+                 keyfile="${server.keyfile}" command="mkdir -p /var/www/html/images/maintenance"/>
+        <scp keyfile="${server.keyfile}"
+             passphrase="${passphrase}"
+	    	 trust="true"
+             todir="${userid}@${ec2.prodhostname}:/var/www/html/images/maintenance">
+	            <fileset dir="/var/lib/jenkins/jobs/project QA built/workspace/images/maintenance"/>
+	    </scp>
+	    <scp file="/var/lib/jenkins/jobs/project QA built/workspace/index.maintenance.html"
+             passphrase="${passphrase}"
+             keyfile="${server.keyfile}"
+	    	 trust="true"
+             todir="${userid}@${ec2.prodhostname}:/var/www/html">
+	    </scp>
+        <sshexec host="${ec2.prodhostname}"
+                 username="${userid}"
+                 trust="true"
+                 verbose="true"
+                 passphrase="${passphrase}"
+                 keyfile="${server.keyfile}" command="mv /var/www/html/index.maintenance.html /var/www/html/index.html"/>
+    </target>
+
+    <target name="rename-maintenance-page-productions" depends="jsch-include">
+        <echo message="${log.delete-maintenance-page.message}"/>
+        <sshexec host="${ec2.prodhostname}"
+                 username="${userid}"
+                 trust="true"
+                 verbose="true"
+                 passphrase="${passphrase}"
+                 keyfile="${server.keyfile}" command="mv /var/www/html/index.html /var/www/html/index.maintenance.html"/>
+    </target>
+	
+    <target name="transfer-prod-files" depends="jsch-include">
+		<echo message="${log.move-prod-files.message}"/>
+	    <scp keyfile="${server.keyfile}"
+             passphrase="${passphrase}"
+	    	 trust="true"
+             todir="${userid}@${ec2.prodhostname}:/var/www/html">
+	            <fileset dir="/var/lib/jenkins/jobs/project QA built/workspace/"/>
+	    </scp>  	
+    </target>
+
+    <target name="transfer-js-files-to-prod" depends="jsch-include">
+        <echo message="${log.move-js-files.message}"/>
+        <scp keyfile="${server.keyfile}"
+             passphrase="${passphrase}"
+             trust="true"
+             todir="${userid}@${ec2.prodhostname}:/var/www/html/js/pages">
+            <fileset dir="${tmp.dir}">
+                <exclude name="**/*.css"/>
+            </fileset>
+        </scp>
+    </target>
+
+    <target name="transfer-css-min-files-to-prod" depends="jsch-include">
+        <echo message="${log.move-less-files.message}"/>
+        <scp keyfile="${server.keyfile}"
+             passphrase="${passphrase}"
+             trust="true"
+             todir="${userid}@${ec2.prodhostname}:/var/www/html/less">
+            <fileset dir="${tmp.dir}">
+                <include name="**/*.css" />
+                <exclude name="**/*.java"/>
+            </fileset>
+        </scp>
+    </target>
+	
+</project>
